@@ -9,11 +9,16 @@
 ;; remove this notice, or any other, from this software.
 
 (ns clojure.algo.test-monads
-  (:use [clojure.test :only (deftest is are run-tests)]
-        [clojure.algo.monads
-         :only (with-monad domonad m-lift m-seq m-chain writer-m write
-                 sequence-m maybe-m state-m maybe-t sequence-t
-                 reader-m ask asks local)]))
+  #?(:clj (:use [clojure.test :only (deftest is are run-tests)]
+                [clojure.algo.monads
+                 :only (with-monad domonad m-lift m-seq m-chain writer-m write
+                         sequence-m maybe-m state-m maybe-t sequence-t
+                         reader-m ask asks local)])
+     :cljs (:require [cljs.test :refer-macros (deftest is are run-tests)]
+                     [clojure.algo.monads
+                      :refer-macros (with-monad domonad m-lift)
+                      :refer (m-seq m-chain writer-m write sequence-m maybe-m
+                              state-m maybe-t sequence-t reader-m ask asks local)])))
 
 
 (deftest domonad-if-then
@@ -42,7 +47,7 @@
                           ]
                           :else [
                             c nil
-                          ]  
+                          ]
                         ]
                         :else [
                           b nil

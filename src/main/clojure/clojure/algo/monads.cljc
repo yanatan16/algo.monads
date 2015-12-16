@@ -20,8 +20,14 @@
            functions."}
   clojure.algo.monads
   (:require [clojure.set])
-  (:use [clojure.tools.macro
-         :only (with-symbol-macros defsymbolmacro name-with-attributes)]))
+  #?(:clj
+     (:use [clojure.tools.macro
+            :only (with-symbol-macros defsymbolmacro name-with-attributes)])
+     :cljs
+     (:require-macros [clojure.algo.monads
+                       :refer [defmonad defmonadfn domonad with-monad
+                               m-bind m-result m-zero m-plus m-lift m-when
+                               m-when-not monad-transformer]])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -29,32 +35,34 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmacro monad
-  "Define a monad by defining the monad operations. The definitions
-   are written like bindings to the monad operations m-bind and
-   m-result (required) and m-zero and m-plus (optional)."
-  [operations]
-  `(let [~'m-bind   ::this-monad-does-not-define-m-bind
-         ~'m-result ::this-monad-does-not-define-m-result
-         ~'m-zero   ::this-monad-does-not-define-m-zero
-         ~'m-plus   ::this-monad-does-not-define-m-plus
-         ~@operations]
-     {:m-result ~'m-result
-      :m-bind ~'m-bind 
-      :m-zero ~'m-zero
-      :m-plus ~'m-plus}))
+#?(:clj
+   (defmacro monad
+     "Define a monad by defining the monad operations. The definitions
+     are written like bindings to the monad operations m-bind and
+     m-result (required) and m-zero and m-plus (optional)."
+     [operations]
+     `(let [~'m-bind   ::this-monad-does-not-define-m-bind
+            ~'m-result ::this-monad-does-not-define-m-result
+            ~'m-zero   ::this-monad-does-not-define-m-zero
+            ~'m-plus   ::this-monad-does-not-define-m-plus
+            ~@operations]
+        {:m-result ~'m-result
+         :m-bind ~'m-bind
+         :m-zero ~'m-zero
+         :m-plus ~'m-plus})))
 
-(defmacro defmonad
-  "Define a named monad by defining the monad operations. The definitions
-   are written like bindings to the monad operations m-bind and
-   m-result (required) and m-zero and m-plus (optional)."
+#?(:clj
+   (defmacro defmonad
+     "Define a named monad by defining the monad operations. The definitions
+     are written like bindings to the monad operations m-bind and
+     m-result (required) and m-zero and m-plus (optional)."
 
-  ([name doc-string operations]
-   (let [doc-name (with-meta name {:doc doc-string})]
-     `(defmonad ~doc-name ~operations)))
+     ([name doc-string operations]
+      (let [doc-name (with-meta name {:doc doc-string})]
+        `(defmonad ~doc-name ~operations)))
 
-  ([name operations]
-   `(def ~name (monad ~operations))))
+     ([name operations]
+      `(def ~name (monad ~operations)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -62,6 +70,10 @@
 ;; Using monads
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn ex [msg]
+  #?(:clj (Exception. msg)
+     :cljs (js/Error. msg)))
 
 (defn- ensure-items [n steps]
   "Ensures there are at least n elements on a list, will fill up with nil
@@ -96,7 +108,7 @@
                    mexpr
                    (prepare-monadic-steps else-mexpr)))
       :else
-       (throw (Exception. "invalid :if without :then and :else"))))
+        (throw (ex "invalid :if without :then and :else"))))
 
 (defn- merge-cond-branches [cond-branches]
   (let [merger (fn [result cond-branch]
@@ -142,7 +154,7 @@
    binding-variable/monadic-expression pairs."
   [steps expr]
   (when (odd? (count steps))
-    (throw (Exception. "Odd number of elements in monad comprehension steps")))
+    (throw (ex "Odd number of elements in monad comprehension steps")))
 
   (let [rsteps  (prepare-monadic-steps steps)
         [[lr ls] & _] (first rsteps)]
@@ -158,34 +170,36 @@
         (list 'm-result expr)
         rsteps))))
 
-(defmacro with-monad
-  "Evaluates an expression after replacing the keywords defining the
-   monad operations by the functions associated with these keywords
-   in the monad definition given by name."
-  [monad & exprs]
-  `(let [name#      ~monad
-         ~'m-bind   (:m-bind name#)
-         ~'m-result (:m-result name#)
-         ~'m-zero   (:m-zero name#)
-         ~'m-plus   (:m-plus name#)]
-     (with-symbol-macros ~@exprs)))
+#?(:clj
+   (defmacro with-monad
+     "Evaluates an expression after replacing the keywords defining the
+     monad operations by the functions associated with these keywords
+     in the monad definition given by name."
+     [monad & exprs]
+     `(let [name#      ~monad
+            ~'m-bind   (:m-bind name#)
+            ~'m-result (:m-result name#)
+            ~'m-zero   (:m-zero name#)
+            ~'m-plus   (:m-plus name#)]
+        (with-symbol-macros ~@exprs))))
 
-(defmacro domonad
-  "Monad comprehension. Takes the name of a monad, a vector of steps
-   given as binding-form/monadic-expression pairs, and a result value
-   specified by expr. The monadic-expression terms can use the binding
-   variables of the previous steps.
-   If the monad contains a definition of m-zero, the step list can also
-   contain conditions of the form :when p, where the predicate p can
-   contain the binding variables from all previous steps.
-   A clause of the form :let [binding-form expr ...], where the bindings
-   are given as a vector as for the use in let, establishes additional
-   bindings that can be used in the following steps."
-  ([steps expr]
-    (monad-expr steps expr))
-  ([name steps expr]
-    (let [mexpr (monad-expr steps expr)]
-      `(with-monad ~name ~mexpr))))
+#?(:clj
+   (defmacro domonad
+     "Monad comprehension. Takes the name of a monad, a vector of steps
+     given as binding-form/monadic-expression pairs, and a result value
+     specified by expr. The monadic-expression terms can use the binding
+     variables of the previous steps.
+     If the monad contains a definition of m-zero, the step list can also
+     contain conditions of the form :when p, where the predicate p can
+     contain the binding variables from all previous steps.
+     A clause of the form :let [binding-form expr ...], where the bindings
+     are given as a vector as for the use in let, establishes additional
+     bindings that can be used in the following steps."
+     ([steps expr]
+      (monad-expr steps expr))
+     ([name steps expr]
+      (let [mexpr (monad-expr steps expr)]
+        `(with-monad ~name ~mexpr)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -193,33 +207,34 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmacro defmonadfn
-  "Like defn, but for functions that use monad operations and are used inside
-   a with-monad block."
-  {:arglists '([name docstring? attr-map? args expr]
-               [name docstring? attr-map? (args expr) ...])}
-  [name & options]
-  (let [[name options]  (name-with-attributes name options)
-        fn-name (symbol (str *ns*) (format "m+%s+m" (str name)))
-        make-fn-body    (fn [args expr]
-                          (list (vec (concat ['m-bind 'm-result
-                                              'm-zero 'm-plus] args))
-                                (list `with-symbol-macros expr)))]
-    (if (list? (first options))
-      ; multiple arities
-      (let [arglists        (map first options)
-            exprs           (map second options)
-            ]
-        `(do
-           (defsymbolmacro ~name (partial ~fn-name ~'m-bind ~'m-result 
-                                                   ~'m-zero ~'m-plus))
-           (defn ~fn-name ~@(map make-fn-body arglists exprs))))
-      ; single arity
-      (let [[args expr] options]
-        `(do
-           (defsymbolmacro ~name (partial ~fn-name ~'m-bind ~'m-result 
-                                                   ~'m-zero ~'m-plus))
-           (defn ~fn-name ~@(make-fn-body args expr)))))))
+#?(:clj
+   (defmacro defmonadfn
+     "Like defn, but for functions that use monad operations and are used inside
+     a with-monad block."
+     {:arglists '([name docstring? attr-map? args expr]
+                  [name docstring? attr-map? (args expr) ...])}
+     [name & options]
+     (let [[name options]  (name-with-attributes name options)
+           fn-name (symbol (str *ns*) (format "m+%s+m" (str name)))
+           make-fn-body    (fn [args expr]
+                             (list (vec (concat ['m-bind 'm-result
+                                                 'm-zero 'm-plus] args))
+                                   (list `with-symbol-macros expr)))]
+       (if (list? (first options))
+                                        ; multiple arities
+         (let [arglists        (map first options)
+               exprs           (map second options)
+               ]
+           `(do
+              (defsymbolmacro ~name (partial ~fn-name ~'m-bind ~'m-result
+                                             ~'m-zero ~'m-plus))
+              (defn ~fn-name ~@(map make-fn-body arglists exprs))))
+                                        ; single arity
+         (let [[args expr] options]
+           `(do
+              (defsymbolmacro ~name (partial ~fn-name ~'m-bind ~'m-result
+                                             ~'m-zero ~'m-plus))
+              (defn ~fn-name ~@(make-fn-body args expr))))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -231,19 +246,22 @@
 ; Define the four basic monad operations as symbol macros that
 ; expand to their unqualified symbol equivalents. This makes it possible
 ; to use them inside macro templates without having to quote them.
-(defsymbolmacro m-result m-result)
-(defsymbolmacro m-bind m-bind)
-(defsymbolmacro m-zero m-zero)
-(defsymbolmacro m-plus m-plus)
+#?(:clj
+   (do
+     (defsymbolmacro m-result m-result)
+     (defsymbolmacro m-bind m-bind)
+     (defsymbolmacro m-zero m-zero)
+     (defsymbolmacro m-plus m-plus)))
 
-(defmacro m-lift
-  "Converts a function f of n arguments into a function of n
-  monadic arguments returning a monadic value."
-  [n f]
-  (let [expr (take n (repeatedly #(gensym "x_")))
-        vars (vec (take n (repeatedly #(gensym "mv_"))))
-        steps (vec (interleave expr vars))]
-    (list `fn vars (monad-expr steps (cons f expr)))))
+#?(:clj
+   (defmacro m-lift
+     "Converts a function f of n arguments into a function of n
+     monadic arguments returning a monadic value."
+     [n f]
+     (let [expr (take n (repeatedly #(gensym "x_")))
+           vars (vec (take n (repeatedly #(gensym "mv_"))))
+           steps (vec (interleave expr vars))]
+       (list `fn vars (monad-expr steps (cons f expr))))))
 
 (defmonadfn m-join
   "Converts a monadic value containing a monadic value into a 'simple'
@@ -309,17 +327,19 @@
        z (m-until p f y)]
       z)))
 
-(defmacro m-when
-  "If test is logical true, return monadic value m-expr, else return
-   (m-result nil)."
-  [test m-expr]
-  `(if ~test ~m-expr (~'m-result nil)))
+#?(:clj
+   (defmacro m-when
+     "If test is logical true, return monadic value m-expr, else return
+     (m-result nil)."
+     [test m-expr]
+     `(if ~test ~m-expr (~'m-result nil))))
 
-(defmacro m-when-not
-  "If test if logical false, return monadic value m-expr, else return
-   (m-result nil)."
-  [test m-expr]
-  `(if ~test (~'m-result nil) ~m-expr))
+#?(:clj
+   (defmacro m-when-not
+     "If test if logical false, return monadic value m-expr, else return
+     (m-result nil)."
+     [test m-expr]
+     `(if ~test (~'m-result nil) ~m-expr)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -580,28 +600,30 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmacro monad-transformer
-  "Define a monad transformer in terms of the monad operations and the base
-   monad. The argument which-m-plus chooses if m-zero and m-plus are taken
-   from the base monad or from the transformer."
-  [base which-m-plus operations]
-  `(let [which-m-plus# (cond (= ~which-m-plus :m-plus-default)
-                             (if (= ::this-monad-does-not-define-m-plus
-                                    (with-monad ~base ~'m-plus))
-                                 :m-plus-from-transformer
-                                 :m-plus-from-base)
-                             (or (= ~which-m-plus :m-plus-from-base)
-                                 (= ~which-m-plus :m-plus-from-transformer))
-                               ~which-m-plus
-                             :else
-                               (throw (java.lang.IllegalArgumentException.
-                                       "undefined m-plus choice")))
-         combined-monad# (monad ~operations)]
-    (if (= which-m-plus# :m-plus-from-base)
-      (assoc combined-monad#
-        :m-zero (with-monad ~base ~'m-zero)
-        :m-plus (with-monad ~base ~'m-plus))
-      combined-monad#)))
+#?(:clj
+   (defmacro monad-transformer
+     "Define a monad transformer in terms of the monad operations and the base
+     monad. The argument which-m-plus chooses if m-zero and m-plus are taken
+     from the base monad or from the transformer."
+     [base which-m-plus operations]
+     `(let [which-m-plus# (cond (= ~which-m-plus :m-plus-default)
+                                (if (= ::this-monad-does-not-define-m-plus
+                                       (with-monad ~base ~'m-plus))
+                                  :m-plus-from-transformer
+                                  :m-plus-from-base)
+                                (or (= ~which-m-plus :m-plus-from-base)
+                                    (= ~which-m-plus :m-plus-from-transformer))
+                                ~which-m-plus
+                                :else
+                                (throw (#?(:clj java.lang.IllegalArgumentException.
+                                           :cljs js/TypeError.)
+                                        "undefined m-plus choice")))
+            combined-monad# (monad ~operations)]
+        (if (= which-m-plus# :m-plus-from-base)
+          (assoc combined-monad#
+                 :m-zero (with-monad ~base ~'m-zero)
+                 :m-plus (with-monad ~base ~'m-plus))
+          combined-monad#))))
 
 (defn maybe-t
   "Monad transformer that transforms a monad m into a monad in which
